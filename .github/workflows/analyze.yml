@@ -26,6 +26,10 @@ jobs:
           python-version: '3.12'
       - name: Install optional plot library
         run: python -m pip install matplotlib
+      - name: Run regression tests (synthetic data only)
+        run: |
+          python test_analyzer.py
+          python test_download_release.py
       - name: Download historical data for both UTC dates
         run: python download_release.py --date "$ADSB_DATE_JST" --directory "$ADSB_INPUT_DIR"
       - name: Analyze position continuity

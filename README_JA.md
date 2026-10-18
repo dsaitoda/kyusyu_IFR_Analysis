@@ -22,18 +22,18 @@
 4. 終了したら、該当ワークフロー実行ページの **Artifacts** から `kyushu-continuity-2026-10-17` を取得します。
 5. `summary.txt`（集計結果）、`gap_events.csv`（候補の全イベント）、`gap_points_below_10000ft.kml`（Google Earthで確認）、`gap_histogram.png`（高度10,000 ft以下の分布）を参照してください。
 
-**注意：** 1回の実行で世界全体の約6.9 GBのデータをダウンロードします。GitHub側の使用時間・ストレージ容量・転送制限・無料枠には注意してください。データを公開しているのは ADSB.lol で、GitHub Actions が遅延・失敗する場合もあります。
+**注意：** 1回の実行で世界全体の複数GBのデータをダウンロード（分割数・総容量は日付によって変わります）します。GitHub側の使用時間・ストレージ容量・転送制限・無料枠には注意してください。データを公開しているのは ADSB.lol で、GitHub Actions が遅延・失敗する場合もあります。
 
 ## B. Windows / Spyder で実行する
 
-1. 次の2日分の GitHub Releases から各2ファイル（合計4ファイル、約6.9GB）をダウンロードして、`C:\ADSB_History` に保存します。`.aa`/`.ab` は解凍・結合しないでください。
+1. 次の2日分の GitHub Releases から **各日にある `.tar.aa` / `.tar.ab` / `.tar.ac` など全パーツ** をダウンロードして、`C:\ADSB_History` に保存します。`.aa`/`.ab` は解凍・結合しないでください。
    - https://github.com/adsblol/globe_history_2026/releases/tag/v2026.10.16-planes-readsb-prod-0
    - https://github.com/adsblol/globe_history_2026/releases/tag/v2026.10.17-planes-readsb-prod-0
 2. `kyushu_continuity.py` 冒頭の `INPUT_DIR`, `OUTPUT_DIR`, `TARGET_DATE_JST` を必要に応じて変更します。
 3. Spyder上で実行します。標準ライブラリのみで集計できます。`gap_histogram.png` が必要な場合のみ `matplotlib` が必要です。
 4. 完了後は `results` フォルダを確認してください。`positions.sqlite` は中間データで、大きくなることがあります。
 
-※ GitHub Actions と同じ形式で Windows 側でも自動ダウンロードしたい場合は、`python download_release.py --date 2026-10-17 --directory "C:\ADSB_History"` を使えます（要 `curl`）。
+※ GitHub Actions と同じ形式で Windows 側でも自動ダウンロードしたい場合は、`python download_release.py --date 2026-10-17 --directory "C:\ADSB_History"` を使えます（要 `curl`）。配布元の GitHub API にあるアセット一覧を取得し、全パーツのサイズ・SHA-256を確認してから解析します。
 
 ## 出力ファイル
 
@@ -58,3 +58,7 @@
 ## 開発用の模擬テスト
 
 `python test_analyzer.py` で、**実機データではない合成航跡**を使い、「真の8分間ギャップ」「UTC境界をまたぐギャップ」「解析矩形外の通過」「新レグ」「高度閾値の往復」をテストできます。
+
+## 分割ファイル数について（修正 2026-10-18）
+
+日付によって分割数は異なります。例えば 2026-10-15 (UTC) は `.aa`, `.ab`, `.ac` の3本です。従来の「常に2本」という前提では末尾が欠落し、`tarfile.ReadError: unexpected end of data` となります。現在はGitHub Releases APIから全パーツを自動検出・照合し、パーツ数を記録した `.tar.manifest.json` を保存します。`Run workflow` の `date_jst` は **日本時間** で指定してください。前回ログは10月16日を選んでいました。

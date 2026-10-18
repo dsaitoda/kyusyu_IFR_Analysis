@@ -1,0 +1,44 @@
+name: Kyushu ADS-B continuity analysis
+
+on:
+  workflow_dispatch:
+    inputs:
+      date_jst:
+        description: "Target JST date (YYYY-MM-DD)"
+        required: true
+        default: "2026-10-17"
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      ADSB_DATE_JST: ${{ inputs.date_jst }}
+      ADSB_INPUT_DIR: ${{ github.workspace }}/data
+      ADSB_OUTPUT_DIR: ${{ github.workspace }}/results
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install optional plot library
+        run: python -m pip install matplotlib
+      - name: Download historical data for both UTC dates
+        run: python download_release.py --date "$ADSB_DATE_JST" --directory "$ADSB_INPUT_DIR"
+      - name: Analyze position continuity
+        run: python kyushu_continuity.py
+      - name: Upload small analysis results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kyushu-continuity-${{ inputs.date_jst }}
+          if-no-files-found: warn
+          path: |
+            results/summary.csv
+            results/summary.txt
+            results/gap_events.csv
+            results/gap_points_below_10000ft.kml
+            results/gap_histogram.png

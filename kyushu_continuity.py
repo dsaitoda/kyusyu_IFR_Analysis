@@ -114,8 +114,22 @@ def discover_archive_parts(folder: Path, utc_date):
     expected = [f"a{chr(ord('a')+i)}" for i in range(len(files))]
     if suffixes != expected:
         raise ValueError(f"{selected} の分割ファイルが連続していません: {suffixes}")
-    if len(files) < 2:
+    # Validate the exact part count from the release manifest, if available.
+    # E.g. 2026-10-15 consists of aa + ab + ac; two files look contiguous
+    # but are still a truncated archive without the last part.
+    manifest_path = folder / (selected + ".manifest.json")
+    if manifest_path.exists():
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        expected_parts = manifest.get("parts", [])
+        if not expected_parts or [p.name for p in files] != [x.get("name") for x in expected_parts]:
+            raise ValueError(f"Missing or unexpected archive parts: {manifest_path.name}")
+        for path, spec in zip(files, expected_parts):
+            if path.stat().st_size != spec["size"]:
+                raise ValueError(f"Archive part size mismatch: {path.name}")
+    elif len(files) < 2:
         raise ValueError(f"{selected} は分割ファイルが1個だけです。ダウンロード不足の可能性があります。")
+    else:
+        print(f"WARNING: manifest missing for {selected}; cannot ensure all parts exist", flush=True)
     print(f"Archive {utc_date.date()}: {len(files)} parts, size {sum(p.stat().st_size for p in files)/1e9:.2f} GB")
     return files
 

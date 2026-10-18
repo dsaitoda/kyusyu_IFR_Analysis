@@ -273,7 +273,7 @@ def run(db, outdir:Path, date_str:str):
     slot_hi=(day+timedelta(hours=17)).timestamp()
     types=['departure','arrival','unknown']
     styles_all=[('alt0','ffff6600',2.0),('alt1','ff00ccff',2.0),('alt2','ff0000ff',2.0),('gap','ff00a5ff',2.0)]
-    styles_slot=[('departure','ffff6600',2.6),('arrival','ff0000ff',2.6),('unknown','ffaaaaaa',1.7),('gap','ff00a5ff',2.0)]
+    styles_slot=[('alt0','ffff6600',2.3),('alt1','ff00ccff',2.3),('alt2','ff0000ff',2.3),('gap','ff00a5ff',2.3)]
     all_path=outdir/'all_tracks_below_10000ft.kml'
     bucket_folder=outdir/'30min_0900_1700';bucket_folder.mkdir(exist_ok=True)
     handles={}
@@ -323,7 +323,7 @@ def run(db, outdir:Path, date_str:str):
                         cut=clip(ab[0],ab[1],st,st+SLOT_SECONDS)
                         if not cut:continue
                         c=phase_for_segment(phase,(cut[0][0]+cut[1][0])/2,first_t,last_t)
-                        collect_segment(slot_routes,(i,c,'gap' if dt>60 else c),*cut)
+                        collect_segment(slot_routes,(i,c,style),*cut)
                         stats['time_kml_segments']+=1
                         slot_tracks[(i,c)].add(ident)
                         # Grid: all traffic + a category-specific layer, independent

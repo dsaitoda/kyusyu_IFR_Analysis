@@ -37,6 +37,8 @@ jobs:
         run: python kyushu_continuity.py
       - name: Export all low-altitude tracks, half-hour maps and density
         run: python kyushu_traffic.py --db "$ADSB_OUTPUT_DIR/positions.sqlite" --output "$ADSB_OUTPUT_DIR" --date "$ADSB_DATE_JST"
+      - name: Build single KML for Google Earth Web
+        run: python merge_web_kml.py --output "$ADSB_OUTPUT_DIR" --date "$ADSB_DATE_JST" --tolerance-nm 0.08
       - name: Upload compact analysis results
         if: always()
         uses: actions/upload-artifact@v4
@@ -55,3 +57,5 @@ jobs:
             results/grid_5NM_0900_1700.csv
             results/time_slot_counts_0900_1700.csv
             results/kyushu_traffic_kml_bundle.zip
+            results/kyushu_web_onefile_*.kml
+            results/web_kml_stats.txt

@@ -1,76 +1,134 @@
 # -*- coding: utf-8 -*-
-"""Download split daily readsb history tar files from ADSB.lol GitHub releases.
+"""Download *all* split ADSB.lol readsb tar parts, verified against GitHub assets.
 
-Requires the 'curl' command (preinstalled on GitHub Actions and current Windows).
-Use --dry-run to list URLs without downloading.
+Do not assume exactly two parts: 2026-10-15 uses aa/ab/ac, for example.
+Requires curl (available on GitHub Actions and current Windows).
 """
 from __future__ import annotations
+
 import argparse
 import hashlib
+import json
+import re
 import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.request import Request, urlopen
 
-JST=timezone(timedelta(hours=9))
-BASE="https://github.com/adsblol/globe_history_2026/releases/download"
-KNOWN_HASHES={
-    "v2026.10.16-planes-readsb-prod-0.tar.aa": "d33bbede5d2fea9abd9c96382e5204d46c2cf7c5baf542f2818850676c8c5d17",
-    "v2026.10.16-planes-readsb-prod-0.tar.ab": "2ec7481a2eb8d2e1a03053aa41ddc10bf82c1e7eac572cf84708ee9353567cf9",
-    "v2026.10.17-planes-readsb-prod-0.tar.aa": "770dcee6d3ae8774b8cd6bd01bf77044d5db16913f80b6025aef623d19c89550",
-    "v2026.10.17-planes-readsb-prod-0.tar.ab": "494d8f32853dc659ffe2381e3eaeb5879792e545ea8acec8698d39901dbdc8de",
-}
+JST = timezone(timedelta(hours=9))
+RELEASES_API = "https://api.github.com/repos/adsblol/globe_history_2026/releases/tags/"
+USER_AGENT = "kyushu-adsb-continuity/1.1"
 
 
 def sha256(path):
-    checksum=hashlib.sha256()
-    with open(path,"rb") as f:
-        for chunk in iter(lambda:f.read(8*1024*1024),b""):
-            checksum.update(chunk)
-    return checksum.hexdigest()
+    digest = hashlib.sha256()
+    with open(path, "rb") as stream:
+        for block in iter(lambda: stream.read(8 * 1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
 
-def download(target_day, output_dir, dry_run):
-    start=datetime.strptime(target_day, "%Y-%m-%d").replace(tzinfo=JST)
-    start_utc=start.astimezone(timezone.utc).date()
-    end_utc=(start+timedelta(days=1)-timedelta(seconds=1)).astimezone(timezone.utc).date()
-    days=sorted({start_utc,end_utc})
-    output_dir.mkdir(parents=True,exist_ok=True)
+def list_tar_assets(release, tag):
+    """Return ordered, contiguous .aa/.ab/.ac/... assets from release metadata."""
+    pattern = re.compile(rf"^{re.escape(tag)}\.tar\.a[a-z]$")
+    assets = sorted(
+        (a for a in release.get("assets", []) if pattern.fullmatch(a.get("name", ""))),
+        key=lambda a: a["name"],
+    )
+    names = [asset["name"] for asset in assets]
+    expected = [f"{tag}.tar.a{chr(ord('a') + i)}" for i in range(len(assets))]
+    if not assets or len(assets) > 26 or names != expected:
+        raise RuntimeError(f"Release {tag}: incomplete/non-contiguous split tar assets: {names}")
+    for a in assets:
+        if not a.get("browser_download_url") or not isinstance(a.get("size"), int) or a["size"] <= 0:
+            raise RuntimeError(f"Release {tag}: missing URL/size metadata: {a.get('name')}")
+        value = a.get("digest")
+        if value and not re.fullmatch(r"sha256:[a-fA-F0-9]{64}", value):
+            raise RuntimeError(f"Release {tag}: unsupported checksum: {value}")
+    return assets
+
+
+def get_release(tag):
+    request = Request(
+        RELEASES_API + tag,
+        headers={"Accept": "application/vnd.github+json", "User-Agent": USER_AGENT},
+    )
+    with urlopen(request, timeout=60) as response:
+        return json.load(response)
+
+
+def check_download(path, asset):
+    expected_size = asset["size"]
+    actual_size = path.stat().st_size
+    if actual_size != expected_size:
+        raise RuntimeError(f"File size mismatch: {path.name} ({actual_size:,} vs {expected_size:,} bytes)")
+    expected_hash = (asset.get("digest") or "").removeprefix("sha256:")
+    if expected_hash and sha256(path).lower() != expected_hash.lower():
+        raise RuntimeError(f"SHA-256 mismatch: {path.name}")
+    if not expected_hash:
+        print(f"  WARNING: {path.name}: API does not publish a checksum (size checked only)", flush=True)
+
+
+def download(target_day, output_dir, dry_run=False):
+    start = datetime.strptime(target_day, "%Y-%m-%d").replace(tzinfo=JST)
+    last_second = start + timedelta(days=1, seconds=-1)
+    days = sorted({start.astimezone(timezone.utc).date(), last_second.astimezone(timezone.utc).date()})
+    output_dir.mkdir(parents=True, exist_ok=True)
+
     for day in days:
-        tag=f"v{day.strftime('%Y.%m.%d')}-planes-readsb-prod-0"
-        for suffix in ["aa","ab"]:
-            filename=f"{tag}.tar.{suffix}"
-            filepath=output_dir/filename
-            url=f"{BASE}/{tag}/{filename}"
-            print(url,flush=True)
+        tag = f"v{day.strftime('%Y.%m.%d')}-planes-readsb-prod-0"
+        assets = list_tar_assets(get_release(tag), tag)
+        print(f"Release {tag}: {len(assets)} parts, {sum(a['size'] for a in assets)/1e9:.2f} GB", flush=True)
+        for asset in assets:
+            name = asset["name"]
+            path = output_dir / name
+            url = asset["browser_download_url"]
+            print(f"  {name}: {asset['size']:,} bytes; {url}", flush=True)
             if dry_run:
                 continue
-            expected=KNOWN_HASHES.get(filename)
-            if filepath.exists():
-                if expected and sha256(filepath).lower()==expected:
-                    print("  existing file verified",flush=True)
+            if path.exists():
+                try:
+                    check_download(path, asset)
+                    print("    existing file verified", flush=True)
                     continue
-                if not expected and filepath.stat().st_size>50_000_000:
-                    print("  existing file (no online checksum available in this script)",flush=True)
-                    continue
-                print("  re-downloading invalid/incomplete file",flush=True)
-                filepath.unlink()
-            # Curl retries transient GitHub CDN failures. Github redirects to binary assets.
-            cmd=["curl","--fail","--location","--retry","4","--retry-delay","5", "--connect-timeout","30", "--output",str(filepath), url]
-            subprocess.run(cmd,check=True)
-            if expected:
-                got=sha256(filepath)
-                if got.lower()!=expected:
-                    filepath.unlink(missing_ok=True)
-                    raise RuntimeError(f"SHA-256 mismatch: {filename} ({got})")
-                print("  SHA-256 verified",flush=True)
-            else:
-                print("  No built-in SHA256 for this date: verify it against GitHub release page before using.")
+                except RuntimeError as exc:
+                    print(f"    invalid existing file: {exc}; downloading again", flush=True)
+                    path.unlink()
+            partial_path = path.with_name(path.name + ".part")
+            partial_path.unlink(missing_ok=True)
+            cmd = [
+                "curl", "--fail", "--location", "--retry", "5", "--retry-delay", "5",
+                "--connect-timeout", "30", "--output", str(partial_path), url,
+            ]
+            try:
+                subprocess.run(cmd, check=True)
+                check_download(partial_path, asset)
+                partial_path.replace(path)
+            except Exception:
+                partial_path.unlink(missing_ok=True)
+                raise
+            print("    size and SHA-256 verified" if asset.get("digest") else "    size verified", flush=True)
+
+        if not dry_run:
+            # The analyzer checks this manifest to prevent accidental omission of .ac/.ad parts.
+            manifest = {
+                "release": tag,
+                "parts": [
+                    {"name": a["name"], "size": a["size"], "digest": a.get("digest")}
+                    for a in assets
+                ],
+            }
+            manifest_path = output_dir / f"{tag}.tar.manifest.json"
+            temp_manifest = manifest_path.with_suffix(".json.tmp")
+            temp_manifest.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+            temp_manifest.replace(manifest_path)
+            print(f"  complete and verified: {manifest_path.name}", flush=True)
 
 
-if __name__=="__main__":
-    parser=argparse.ArgumentParser()
-    parser.add_argument("--date",default="2026-10-17",help="Target date in Japan Standard Time, YYYY-MM-DD")
-    parser.add_argument("--directory",default="data",help="Directory to store files")
-    parser.add_argument("--dry-run",action="store_true")
-    args=parser.parse_args()
-    download(args.date,Path(args.directory),args.dry_run)
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--date", default="2026-10-17", help="JST date, YYYY-MM-DD")
+    parser.add_argument("--directory", default="data")
+    parser.add_argument("--dry-run", action="store_true")
+    args = parser.parse_args()
+    download(args.date, Path(args.directory), args.dry_run)

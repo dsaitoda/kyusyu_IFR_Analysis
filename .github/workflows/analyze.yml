@@ -1,4 +1,4 @@
-name: Kyushu ADS-B continuity analysis
+name: Kyushu ADS-B continuity + traffic maps
 
 on:
   workflow_dispatch:
@@ -30,11 +30,14 @@ jobs:
         run: |
           python test_analyzer.py
           python test_download_release.py
+          python test_kyushu_traffic.py
       - name: Download historical data for both UTC dates
         run: python download_release.py --date "$ADSB_DATE_JST" --directory "$ADSB_INPUT_DIR"
       - name: Analyze position continuity
         run: python kyushu_continuity.py
-      - name: Upload small analysis results
+      - name: Export all low-altitude tracks, half-hour maps and density
+        run: python kyushu_traffic.py --db "$ADSB_OUTPUT_DIR/positions.sqlite" --output "$ADSB_OUTPUT_DIR" --date "$ADSB_DATE_JST"
+      - name: Upload compact analysis results
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -46,3 +49,9 @@ jobs:
             results/gap_events.csv
             results/gap_points_below_10000ft.kml
             results/gap_histogram.png
+            results/traffic_readme.txt
+            results/traffic_density_5NM_0900_1700.png
+            results/traffic_density_5NM_0900_1700.kml
+            results/grid_5NM_0900_1700.csv
+            results/time_slot_counts_0900_1700.csv
+            results/kyushu_traffic_kml_bundle.zip

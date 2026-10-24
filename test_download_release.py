@@ -73,6 +73,17 @@ def run_tests():
             request = mocked.call_args.args[0]
             assert request.get_header("Authorization") == "Bearer synthetic-token"
             assert f"globe_history_2026/releases/tags/{tag}" in request.full_url
+    # A transient API 403 should retry rather than fail the whole monthly run.
+    from urllib.error import HTTPError
+    with patch.dict("os.environ", {"GITHUB_TOKEN": "synthetic-token"}, clear=False):
+        denied = HTTPError(
+            "https://api.github.com/", 403, "rate limit exceeded",
+            {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "1"}, None)
+        with patch.object(downloader, "urlopen", side_effect=[denied, StubResponse()]) as mocked:
+            with patch.object(downloader.time, "sleep", return_value=None):
+                assert downloader.get_release(tag) == {"assets": []}
+                assert mocked.call_count == 2
+    print("PASS: 403 primary rate limit automatically retries")
     print("PASS: authenticated metadata request using the built-in GitHub token")
     print("PASS: 3-part release assets, missing-middle detection, missing-last-part manifest rejection")
 

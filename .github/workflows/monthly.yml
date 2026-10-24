@@ -19,8 +19,10 @@ jobs:
       end: ${{ steps.dates.outputs.end }}
     steps:
       - uses: actions/checkout@v4
-      - name: Check monthly aggregation on synthetic flights
-        run: python test_month_grid.py
+      - name: Check download authentication/retry and monthly aggregation
+        run: |
+          python test_download_release.py
+          python test_month_grid.py
       - id: dates
         name: Validate month and plan dates
         env:
@@ -45,6 +47,9 @@ jobs:
       GITHUB_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - name: Download archives for this JST date
         run: python download_release.py --date "$ADSB_DATE_JST" --directory "$ADSB_INPUT_DIR"
       - name: Parse historical positions into local SQLite

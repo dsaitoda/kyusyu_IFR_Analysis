@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Kyushu 10,000 ft (pressure altitude) ADS-B/MLAT traffic visualizations.
+"""Kyushu 13,000 ft (pressure altitude) ADS-B/MLAT traffic visualizations.
 
 Uses the existing ADSB.lol SQLite positions database built by kyushu_continuity.py.
 Does not pretend to identify IFR status or measure unseen/Mode-A-only traffic.
@@ -20,7 +20,7 @@ import kyushu_continuity as base
 
 JST = timezone(timedelta(hours=9))
 LAT0, LAT1, LON0, LON1 = base.LAT_MIN, base.LAT_MAX, base.LON_MIN, base.LON_MAX
-MAX_ALT = 10000.0
+MAX_ALT = 13000.0
 GRID_NM = 5.0
 LAT_PER_NM = 1 / 60.0
 LON_PER_NM = 1 / (60.0 * math.cos(math.radians(32.0)))
@@ -62,6 +62,28 @@ def clip(a, b, time_lo, time_hi, altitude=MAX_ALT):
             if u0 >= u1 - 1e-12:
                 return None
     return interp(a,b,u0), interp(a,b,u1)
+
+
+
+def altitude_segments(a, b, is_interpolated=False):
+    """Split any climb/descent at altitude-band boundaries before assigning color."""
+    if a[3] is None or b[3] is None or b[0] <= a[0]:
+        return
+    cuts = [0.0, 1.0]
+    if abs(b[3] - a[3]) > 1e-9:
+        for altitude in (3000.0, 6000.0, 10000.0):
+            fraction = (altitude - a[3]) / (b[3] - a[3])
+            if 1e-9 < fraction < 1.0 - 1e-9:
+                cuts.append(fraction)
+    cuts.sort()
+    for u, v in zip(cuts, cuts[1:]):
+        start, end = interp(a, b, u), interp(a, b, v)
+        midpoint = (start[3] + end[3]) / 2.0
+        style = ('gap' if is_interpolated else
+                 'alt0' if midpoint < 3000 else
+                 'alt1' if midpoint < 6000 else
+                 'alt2' if midpoint < 10000 else 'alt3')
+        yield style, start, end
 
 
 def split_leg(previous, current):
@@ -222,7 +244,7 @@ def write_density(grid, outdir, date_str):
             lat_a=LAT0+y*GRID_NM*LAT_PER_NM
             lat_b=lat_a+GRID_NM*LAT_PER_NM
             label=f'{n} tracks / {v["minutes"]:.0f} flight-min'
-            f.write(f'<Placemark><name>{label}</name><description>5 NM nominal grid, JST 09-17; all observed tracks below 10000 ft. Quartile-relative color.</description>'
+            f.write(f'<Placemark><name>{label}</name><description>5 NM nominal grid, JST 09-17; all observed tracks at or below 13000 ft. Quartile-relative color.</description>'
                     f'<Style><LineStyle><color>66111111</color><width>0.5</width></LineStyle><PolyStyle><color>{colors[ci]}</color></PolyStyle></Style>'
                     '<Polygon><tessellate>1</tessellate><altitudeMode>clampToGround</altitudeMode><outerBoundaryIs><LinearRing><coordinates>'
                     f'{lon_a:.6f},{lat_a:.6f},0 {lon_b:.6f},{lat_a:.6f},0 {lon_b:.6f},{lat_b:.6f},0 {lon_a:.6f},{lat_b:.6f},0 {lon_a:.6f},{lat_a:.6f},0'
@@ -259,7 +281,7 @@ def render_map(grid,outdir,date_str):
         ax.set_xlabel('Longitude (E)')
         fig.colorbar(im,ax=ax,shrink=.65,label='Distinct recorded flight legs / cell')
     axes[0].set_ylabel('Latitude (N)')
-    fig.suptitle(f'Kyushu observed traffic below 10,000 ft, 09:00–17:00 JST · {date_str}\n'
+    fig.suptitle(f'Kyushu observed traffic at or below 13,000 ft, 09:00–17:00 JST · {date_str}\n'
                  '5 NM grid | not an airspace risk map; ADS-B/MLAT coverage incomplete',fontsize=12)
     fig.savefig(outdir/'traffic_density_5NM_0900_1700.png',dpi=150)
     plt.close(fig)
@@ -272,22 +294,22 @@ def run(db, outdir:Path, date_str:str):
     slot_lo=(day+timedelta(hours=9)).timestamp()
     slot_hi=(day+timedelta(hours=17)).timestamp()
     types=['departure','arrival','unknown']
-    styles_all=[('alt0','ffff6600',2.0),('alt1','ff00ccff',2.0),('alt2','ff0000ff',2.0),('gap','ff00a5ff',2.0)]
-    styles_slot=[('alt0','ffff6600',2.3),('alt1','ff00ccff',2.3),('alt2','ff0000ff',2.3),('gap','ff00a5ff',2.3)]
-    all_path=outdir/'all_tracks_below_10000ft.kml'
+    styles_all=[('alt0','ffff6600',2.0),('alt1','ff00ccff',2.0),('alt2','ff0000ff',2.0),('alt3','ffb6599b',2.2),('gap','ff00a5ff',2.0)]
+    styles_slot=[('alt0','ffff6600',2.3),('alt1','ff00ccff',2.3),('alt2','ff0000ff',2.3),('alt3','ffb6599b',2.5),('gap','ff00a5ff',2.3)]
+    all_path=outdir/'all_tracks_below_13000ft.kml'
     bucket_folder=outdir/'30min_0900_1700';bucket_folder.mkdir(exist_ok=True)
     handles={}
     stats=Counter();grid=defaultdict(lambda: {'flights':0,'minutes':0.0})
     seen=set(); slot_tracks=defaultdict(set)
     with all_path.open('w',encoding='utf-8') as allfile:
-        allfile.write(kml_header(f'All recorded Kyushu tracks <=10000ft {date_str} JST',styles_all))
+        allfile.write(kml_header(f'All recorded Kyushu tracks up to 13000ft {date_str} JST',styles_all))
         try:
             for i in range(16):
                 t=day+timedelta(hours=9,minutes=30*i)
                 slot_label=t.strftime('%H%M')+'_'+(t+timedelta(minutes=30)).strftime('%H%M')
                 for category in types:
                     path=bucket_folder/f'{slot_label}_{category}.kml'
-                    h=path.open('w',encoding='utf-8');h.write(kml_header(f'{date_str} JST {slot_label} {category} <=10000ft',styles_slot))
+                    h=path.open('w',encoding='utf-8');h.write(kml_header(f'{date_str} JST {slot_label} {category} up to 13000ft',styles_slot))
                     handles[(i,category)]=h
             for icao,leg,points in flight_groups(db):
                 stats['legs_all']+=1
@@ -304,32 +326,28 @@ def run(db, outdir:Path, date_str:str):
                     if not ab:continue
                     had_low=True
                     dt=b[0]-a[0]
-                    mid_alt=(ab[0][3]+ab[1][3])/2
-                    if dt>60:style='gap';stats['interpolated_edges']+=1
-                    else:style='alt0' if mid_alt<=3000 else 'alt1' if mid_alt<=6000 else 'alt2'
-                    descr=(f'icao={icao}; flight={a[6] or b[6]}; type={a[7]}; source={a[8]}; '
-                           f'original interval={int(dt)} seconds; straight-line interpolation={dt>60}; '
-                           f'phase={phase}; origin={dep_apt}; destination={arr_apt}')
-                    collect_segment(all_routes,style,*ab)
-                    stats['all_kml_segments']+=1
-                    # Clip independently per 30-min bin: flights crossing a slot boundary
-                    # are split at exact UTC timestamps and not duplicated as full tracks.
-                    lo=max(ab[0][0],slot_lo);hi=min(ab[1][0],slot_hi)
-                    if hi <= lo: continue
-                    i0=max(0,int((lo-slot_lo)//SLOT_SECONDS))
-                    i1=min(15,int(math.ceil((hi-slot_lo)/SLOT_SECONDS))-1)
-                    for i in range(i0,i1+1):
-                        st=slot_lo+i*SLOT_SECONDS
-                        cut=clip(ab[0],ab[1],st,st+SLOT_SECONDS)
-                        if not cut:continue
-                        c=phase_for_segment(phase,(cut[0][0]+cut[1][0])/2,first_t,last_t)
-                        collect_segment(slot_routes,(i,c,style),*cut)
-                        stats['time_kml_segments']+=1
-                        slot_tracks[(i,c)].add(ident)
-                        # Grid: all traffic + a category-specific layer, independent
-                        # of raw ADS-B sample frequency.
-                        grid_sample(*cut,ident,'all',grid,seen,slot_lo,slot_hi)
-                        grid_sample(*cut,ident,c,grid,seen,slot_lo,slot_hi)
+                    if dt > 60:
+                        stats['interpolated_edges'] += 1
+                    for style, low, high in altitude_segments(*ab, is_interpolated=dt > 60):
+                        collect_segment(all_routes, style, low, high)
+                        stats['all_kml_segments'] += 1
+                        lo = max(low[0], slot_lo)
+                        hi = min(high[0], slot_hi)
+                        if hi <= lo:
+                            continue
+                        i0 = max(0, int((lo-slot_lo)//SLOT_SECONDS))
+                        i1 = min(15, int(math.ceil((hi-slot_lo)/SLOT_SECONDS))-1)
+                        for i in range(i0,i1+1):
+                            st = slot_lo + i*SLOT_SECONDS
+                            cut = clip(low,high,st,st+SLOT_SECONDS)
+                            if not cut:
+                                continue
+                            c = phase_for_segment(phase,(cut[0][0]+cut[1][0])/2,first_t,last_t)
+                            collect_segment(slot_routes,(i,c,style),*cut)
+                            stats['time_kml_segments'] += 1
+                            slot_tracks[(i,c)].add(ident)
+                            grid_sample(*cut,ident,'all',grid,seen,slot_lo,slot_hi)
+                            grid_sample(*cut,ident,c,grid,seen,slot_lo,slot_hi)
                 metadata=(f'icao={icao}; callsign={points[0][6]}; type={points[0][7]}; '
                           f'phase={phase}; possible origin={dep_apt}; possible destination={arr_apt}')
                 for style,lines in all_routes.items():
@@ -355,7 +373,7 @@ def run(db, outdir:Path, date_str:str):
         f.write(f'Date JST: {date_str}\nBounds: lat {LAT0}-{LAT1}, lon {LON0}-{LON1}\n')
         f.write('Observed ADS-B/MLAT traces only. NOT all IFR flights. NOT airspace closures or collision-risk estimate.\n')
         f.write('Altitude is barometric ft (may differ from QNH indicated altitude). Ground-clamped KML.\n')
-        f.write('All tracks are ground-projected, broken at the day/geographic/10,000-ft boundaries.\n')
+        f.write('All tracks are ground-projected, clipped to the day/geographic/13,000-ft boundary and split at 3,000, 6,000, 10,000 ft.\n')
         f.write('Record gaps <=90 min within the same inferred flight leg are straight-line interpolated, orange.\n')
         f.write('Gaps >90 min, new flight-leg flags, speed >850 kt, and callsign changes are NOT connected.\n')
         f.write('Departures/arrivals are APPROXIMATIONS based on local-airport proximity, altitude trends,\n')

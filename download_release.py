@@ -9,10 +9,14 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
+import os
 import re
 import subprocess
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 JST = timezone(timedelta(hours=9))
@@ -49,12 +53,67 @@ def list_tar_assets(release, tag):
 
 
 def get_release(tag):
-    request = Request(
-        RELEASES_API_TEMPLATE.format(year=tag[1:5]) + tag,
-        headers={"Accept": "application/vnd.github+json", "User-Agent": USER_AGENT},
-    )
-    with urlopen(request, timeout=60) as response:
-        return json.load(response)
+    """Fetch one release using the workflow's GITHUB_TOKEN if supplied.
+
+    Unauthenticated GitHub API access is limited per shared IP, which breaks
+    a matrix of 30 daily jobs. Do not log the token or the Authorization header.
+    """
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": USER_AGENT,
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    token = os.getenv("GITHUB_TOKEN") or os.getenv("GH_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token.strip()}"
+    else:
+        print("WARNING: no GitHub API token supplied; public API rate limit may be exceeded",
+              flush=True)
+    url = RELEASES_API_TEMPLATE.format(year=tag[1:5]) + tag
+    request = Request(url, headers=headers)
+    for attempt in range(5):
+        try:
+            with urlopen(request, timeout=60) as response:
+                print(f"GitHub release API {tag}: HTTP {response.status}, "
+                      f"remaining={response.headers.get('X-RateLimit-Remaining', '?')}",
+                      flush=True)
+                return json.load(response)
+        except HTTPError as exc:
+            status = exc.code
+            remaining = exc.headers.get("X-RateLimit-Remaining", "")
+            reset = exc.headers.get("X-RateLimit-Reset")
+            retry_after = exc.headers.get("Retry-After")
+            # 404 means the day's archive is not published; no retry can fix it.
+            if status == 404:
+                raise RuntimeError(f"ADSB.lol release not published: {tag} (HTTP 404)") from exc
+            retryable = status in (429, 500, 502, 503, 504) or (
+                status == 403 and (remaining == "0" or retry_after is not None))
+            if not retryable or attempt == 4:
+                raise RuntimeError(
+                    f"GitHub release API failed for {tag}: HTTP {status}, "
+                    f"remaining={remaining or '?'}, "
+                    f"authenticated={'yes' if token else 'no'}") from exc
+            wait = min(10 * (2 ** attempt), 120)
+            if retry_after:
+                try:
+                    wait = max(wait, int(retry_after))
+                except ValueError:
+                    pass
+            if remaining == "0" and reset:
+                try:
+                    wait = max(wait, int(reset) - time.time() + 5)
+                except ValueError:
+                    pass
+            print(f"GitHub API HTTP {status}, rate-limited; retry "
+                  f"{attempt + 1}/4 after {math.ceil(max(1, wait))} seconds", flush=True)
+            time.sleep(max(1, wait))
+        except URLError as exc:
+            if attempt == 4:
+                raise RuntimeError(f"Network problem reading release {tag}") from exc
+            wait = 10 * 2 ** attempt
+            print(f"Network error contacting GitHub release API; retry in {wait}s", flush=True)
+            time.sleep(wait)
+    raise RuntimeError(f"Could not fetch release metadata for {tag}")
 
 
 def check_download(path, asset):

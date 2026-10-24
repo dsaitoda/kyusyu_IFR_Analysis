@@ -40,6 +40,9 @@ jobs:
       ADSB_DATE_JST: ${{ matrix.day }}
       ADSB_INPUT_DIR: ${{ github.workspace }}/data
       ADSB_OUTPUT_DIR: ${{ github.workspace }}/results
+      # Automatic short-lived credential issued by GitHub Actions.
+      # No personal access token or manual secret registration needed.
+      GITHUB_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
       - name: Download archives for this JST date

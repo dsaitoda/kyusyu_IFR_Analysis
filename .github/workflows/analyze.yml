@@ -19,6 +19,7 @@ jobs:
       ADSB_DATE_JST: ${{ inputs.date_jst }}
       ADSB_INPUT_DIR: ${{ github.workspace }}/data
       ADSB_OUTPUT_DIR: ${{ github.workspace }}/results
+      GITHUB_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

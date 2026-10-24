@@ -57,5 +57,6 @@ jobs:
             results/grid_5NM_0900_1700.csv
             results/time_slot_counts_0900_1700.csv
             results/kyushu_traffic_kml_bundle.zip
+            results/all_tracks_below_13000ft.kml
             results/kyushu_web_onefile_*.kml
             results/web_kml_stats.txt

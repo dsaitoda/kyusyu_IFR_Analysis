@@ -54,6 +54,26 @@ def run_tests():
             pass
         else:
             raise AssertionError("Missing last part not rejected")
+    # The workflow's temporary token must be sent on the metadata API call.
+    # Do not test with a live network call; assert the outgoing request header.
+    import io
+    class StubResponse:
+        status = 200
+        headers = {"X-RateLimit-Remaining": "980"}
+        def __enter__(self):
+            return self
+        def __exit__(self, *_args):
+            return False
+        def read(self, *_args):
+            return b'{"assets": []}'
+    with patch.dict("os.environ", {"GITHUB_TOKEN": "synthetic-token"}, clear=False):
+        with patch.object(downloader, "urlopen", return_value=StubResponse()) as mocked:
+            response = downloader.get_release(tag)
+            assert response == {"assets": []}
+            request = mocked.call_args.args[0]
+            assert request.get_header("Authorization") == "Bearer synthetic-token"
+            assert f"globe_history_2026/releases/tags/{tag}" in request.full_url
+    print("PASS: authenticated metadata request using the built-in GitHub token")
     print("PASS: 3-part release assets, missing-middle detection, missing-last-part manifest rejection")
 
 

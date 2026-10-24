@@ -16,7 +16,7 @@ from pathlib import Path
 from urllib.request import Request, urlopen
 
 JST = timezone(timedelta(hours=9))
-RELEASES_API = "https://api.github.com/repos/adsblol/globe_history_2026/releases/tags/"
+RELEASES_API_TEMPLATE = "https://api.github.com/repos/adsblol/globe_history_{year}/releases/tags/"
 USER_AGENT = "kyushu-adsb-continuity/1.1"
 
 
@@ -50,7 +50,7 @@ def list_tar_assets(release, tag):
 
 def get_release(tag):
     request = Request(
-        RELEASES_API + tag,
+        RELEASES_API_TEMPLATE.format(year=tag[1:5]) + tag,
         headers={"Accept": "application/vnd.github+json", "User-Agent": USER_AGENT},
     )
     with urlopen(request, timeout=60) as response:
@@ -71,6 +71,8 @@ def check_download(path, asset):
 
 def download(target_day, output_dir, dry_run=False):
     start = datetime.strptime(target_day, "%Y-%m-%d").replace(tzinfo=JST)
+    if start > datetime.now(JST):
+        raise ValueError("Future date is not available in historical archives")
     last_second = start + timedelta(days=1, seconds=-1)
     days = sorted({start.astimezone(timezone.utc).date(), last_second.astimezone(timezone.utc).date()})
     output_dir.mkdir(parents=True, exist_ok=True)

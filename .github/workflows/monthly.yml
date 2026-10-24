@@ -19,6 +19,8 @@ jobs:
       end: ${{ steps.dates.outputs.end }}
     steps:
       - uses: actions/checkout@v4
+      - name: Check monthly aggregation on synthetic flights
+        run: python test_month_grid.py
       - id: dates
         name: Validate month and plan dates
         env:

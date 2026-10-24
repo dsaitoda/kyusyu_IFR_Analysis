@@ -6,7 +6,7 @@ from collections import Counter
 from pathlib import Path
 from xml.sax.saxutils import escape
 
-NAMES=(('alt0','ffff6600'),('alt1','ff00ccff'),('alt2','ff0000ff'),('gap','ff00a5ff'))
+NAMES=(('alt0','ffff6600'),('alt1','ff00ccff'),('alt2','ff0000ff'),('alt3','ffb6599b'),('gap','ff00a5ff'))
 COORDS=re.compile(r'(<coordinates>)([^<]+)(</coordinates>)')
 
 def simplify(pts, tolerance=0.08):
@@ -56,7 +56,7 @@ def merge(folder, date, tolerance):
     with target.open('w',encoding='utf-8') as out:
         out.write('<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document>')
         out.write(f'<name>九州航空交通 {escape(date)} JST</name>')
-        out.write('<description>Observed ADS-B/MLAT; 10,000ft pressure altitude or lower; flight phases inferred; gap lines straight.</description>')
+        out.write('<description>Observed ADS-B/MLAT; 13,000ft pressure altitude or lower; flight phases inferred; gap lines straight.</description>')
         for name,color in NAMES:
             out.write(f'<Style id="{name}"><LineStyle><color>{color}</color><width>2</width></LineStyle></Style>')
         def start(name,visible=False):
@@ -65,8 +65,8 @@ def merge(folder, date, tolerance):
         for p in placemarks(folder/'traffic_density_5NM_0900_1700.kml'):
             out.write(compact(p,count,tolerance,True))
         out.write('</Folder>')
-        start('02 全航跡・高度別（00:00-24:00）')
-        for p in placemarks(folder/'all_tracks_below_10000ft.kml'):
+        start('02 全航跡・高度別（00:00-24:00、13,000ft以下）')
+        for p in placemarks(folder/'all_tracks_below_13000ft.kml'):
             out.write(compact(p,count,tolerance))
         out.write('</Folder>')
         start('03 30分別の航跡 09:00-17:00')

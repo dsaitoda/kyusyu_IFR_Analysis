@@ -33,7 +33,7 @@ with tempfile.TemporaryDirectory() as folder:
     assert stats['interpolated_edges']>=2,stats
     assert 'straight-line interpolation=True' in (out/'all_tracks_below_13000ft.kml').read_text()
     assert 'abc002' not in (out/'all_tracks_below_13000ft.kml').read_text()
-    assert '#alt3' in (out/'all_tracks_below_13000ft.kml').read_text()
+    assert 'id="alt3"' in (out/'all_tracks_below_13000ft.kml').read_text()
     counts=list(csv.DictReader((out/'time_slot_counts_0900_1700.csv').open(encoding='utf-8-sig')))
     assert any(int(c['distinct_flight_legs'])>0 and c['category']=='departure' for c in counts),counts
     assert any(int(c['distinct_flight_legs'])>0 and c['category']=='arrival' for c in counts),counts
@@ -44,5 +44,5 @@ with tempfile.TemporaryDirectory() as folder:
     merged=out/'kyushu_web_onefile_2026-10-17.kml'
     tree=ET.parse(merged)
     assert any(x.attrib.get('id')=='alt3' for x in tree.getroot().iter() if x.tag.endswith('Style'))
-    assert '#alt3' in merged.read_text()
+    assert 'id="alt3"' in merged.read_text()
 print('All Kyushu traffic export synthetic tests passed')
